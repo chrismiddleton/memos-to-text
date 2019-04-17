@@ -1,0 +1,66 @@
+#!/usr/bin/env php
+<?php
+function walkNode($node, $visitor) {
+	if (empty($node) || empty($node->childNodes)) return;
+	foreach ($node->childNodes as $childNode) {
+		$visitor($childNode);
+		if ($childNode->hasChildNodes()) {
+			walkNode($childNode, $visitor);
+		}
+	}
+}
+
+function memoToTextFile($file) {
+	$fileContents = file_get_contents("zip://$file#memo_content.xml");
+	if (empty($fileContents)) {
+		throw new Exception("The file '$file' is empty.");
+	}
+	$xml = simplexml_load_string($fileContents);
+	if (empty($xml)) {
+		throw new Exception("Invalid XML in '$file'.");
+	}
+	$title = "";
+	$createdTime = 0;
+	foreach ($xml->header->children() as $childNode) {
+		if ($childNode->getName() === "meta") {
+			$attributes = $childNode->attributes();
+			if (!empty($attributes["title"])) {
+				$title = $attributes["title"];
+			} else if (!empty($attributes["createdTime"])) {
+				$createdTime = floor($attributes["createdTime"] / 1000);
+			}
+		}
+	}
+	$htmlContent = "<!DOCTYPE html><html><head></head><body>" . $xml->contents->content . "</body></html>";
+	$doc = new DOMDocument();
+	$doc->loadHTML($htmlContent);
+	$text = "";
+	if (!empty($title)) {
+		$text .= "$title\n\n";
+	}
+	if ($createdTime > 0) {
+		$text .= "(" . date("Y-m-d H:i:s", $createdTime) . ")\n\n";
+	}
+	walkNode($doc, function($node) use (&$text) {
+		if ($node instanceof DOMText) {
+			$text .= $node->nodeValue . "\n";
+		}
+	});
+	if (file_exists("$file.txt")) {
+		echo "The file '$file.txt' already exists - stopping conversion\n";
+		break;
+	}
+	file_put_contents("$file.txt", $text);
+	echo "Created $file.txt\n";
+	return "$file.txt";
+}
+
+for ($i = 1; $i < count($argv); $i++) {
+	try {
+		$file = $argv[$i];
+		memoToTextFile($file);
+	} catch (Exception $e) {
+		echo "Error: " . $e->getMessage() . "\n";
+		exit();
+	}
+}
